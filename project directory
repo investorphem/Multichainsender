@@ -1,0 +1,11 @@
+multisender-dapp/
+├── src/
+│   ├── App.tsx
+│   ├── main.tsx
+│   ├── wagmi.ts
+│   └── index.css
+├── index.html
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+└── .gitignore
