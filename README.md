@@ -17,6 +17,7 @@ A professional-grade, high-concurrency dApp designed for the Base network. This 
 - **Frontend:** React 19, TypeScript
 - **Web3 Connectivity:** RainbowKit, Wagmi, Viem
 - **Deployment:** Vercel (Frontend), BaseScan (Contract)
+- **Wallet:** Wallet Connect.
 
 ## 📖 Project Structure
 
