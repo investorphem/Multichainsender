@@ -3,7 +3,7 @@ import { useWriteContract, useAccount } from 'wagmi';
 import { parseEther, parseUnits } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 
-const CONTRACT_ADDRESS = '0xYourDeployedContractAddress';
+const CONTRACT_ADDRESS = '0x883f9868C5D44B16949ffF77fe56c4d9A9C2cfbD';
 const ABI = [
   "function multisendETH(address[] recipients, uint256[] values) external payable",
   "function multisendToken(address token, address[] recipients, uint256[] values) external"
