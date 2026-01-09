@@ -17,16 +17,44 @@ export default function App() {
   const [tokenAddr, setTokenAddr] = useState('');
 
   const handleSend = (type: 'ETH' | 'TOKEN') => {
-    const addrs = recipients.split(',').map(a => a.trim() as `0x${string}`);
-    const amts = amounts.split(',').map(a => a.trim());
-    
-    if (type === 'ETH') {
-      const weiValues = amts.map(a => parseEther(a));
-      const total = weiValues.reduce((acc, v) => acc + v, 0n);
-      writeContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'multisendETH', args: [addrs, weiValues], value: total });
-    } else {
-      const units = amts.map(a => parseUnits(a, 18));
-      writeContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'multisendToken', args: [tokenAddr as `0x${string}`, addrs, units] });
+    try {
+      // 1. Clean the input: Remove brackets [ ] and split by comma
+      const cleanAddrStr = recipients.replace(/[\[\]]/g, '');
+      const cleanAmtStr = amounts.replace(/[\[\]]/g, '');
+
+      // 2. Convert to Arrays and remove empty spaces
+      const addrs = cleanAddrStr.split(',').map(a => a.trim()).filter(a => a !== '') as `0x${string Royal}`;
+      const amts = cleanAmtStr.split(',').map(a => a.trim()).filter(a => a !== '');
+
+      if (addrs.length !== amts.length) {
+        alert(`Mismatch: You have ${addrs.length} addresses but ${amts.length} amounts.`);
+        return;
+      }
+
+      if (type === 'ETH') {
+        const weiValues = amts.map(a => parseEther(a));
+        const total = weiValues.reduce((acc, v) => acc + v, 0n);
+        
+        writeContract({ 
+          address: CONTRACT_ADDRESS, 
+          abi: ABI, 
+          functionName: 'multisendETH', 
+          args: [addrs, weiValues], 
+          value: total 
+        });
+      } else {
+        const units = amts.map(a => parseUnits(a, 18));
+        
+        writeContract({ 
+          address: CONTRACT_ADDRESS, 
+          abi: ABI, 
+          functionName: 'multisendToken', 
+          args: [tokenAddr as `0x${string}`, addrs, units] 
+        });
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Input Error: Make sure amounts are numbers and addresses are valid.");
     }
   };
 
@@ -35,11 +63,33 @@ export default function App() {
       <ConnectButton />
       {isConnected && (
         <div className="form">
-          <input placeholder="Token Address (for tokens only)" onChange={e => setTokenAddr(e.target.value)} />
-          <textarea placeholder="Recipients (comma separated)" onChange={e => setRecipients(e.target.value)} />
-          <textarea placeholder="Amounts (comma separated)" onChange={e => setAmounts(e.target.value)} />
-          <button onClick={() => handleSend('ETH')} disabled={isPending}>Send ETH</button>
-          <button onClick={() => handleSend('TOKEN')} disabled={isPending}>Send Tokens</button>
+          <input 
+            placeholder="Token Address (for tokens only)" 
+            value={tokenAddr}
+            onChange={e => setTokenAddr(e.target.value)} 
+          />
+          <textarea 
+            placeholder="Recipients (e.g. 0x123..., 0x456...)" 
+            value={recipients}
+            onChange={e => setRecipients(e.target.value)} 
+          />
+          <textarea 
+            placeholder="Amounts (e.g. 0.1, 0.5)" 
+            value={amounts}
+            onChange={e => setAmounts(e.target.value)} 
+          />
+          
+          <button onClick={() => handleSend('ETH')} disabled={isPending}>
+            {isPending ? 'Confirm in Wallet...' : 'Send ETH'}
+          </button>
+          
+          <button 
+            onClick={() => handleSend('TOKEN')} 
+            disabled={isPending}
+            style={{ marginTop: '10px', backgroundColor: '#0052ff' }}
+          >
+            {isPending ? 'Confirm in Wallet...' : 'Send Tokens'}
+          </button>
         </div>
       )}
     </div>
