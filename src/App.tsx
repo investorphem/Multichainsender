@@ -10,19 +10,42 @@ const ABI = [
 ] as const;
 
 export default function App() {
-  const { isConnected } = useAccount();
-  const { writeContract, isPending } = useWriteContract();
+  const { isConnected, chain } = useAccount();
   const [recipients, setRecipients] = useState('');
   const [amounts, setAmounts] = useState('');
   const [tokenAddr, setTokenAddr] = useState('');
 
+  // Added onError and onSuccess listeners to capture hidden failures
+  const { writeContract, isPending } = useWriteContract({
+    mutation: {
+      onError: (error: any) => {
+        console.error("Contract Write Error:", error);
+        alert(`Transaction Failed: ${error.shortMessage || error.message || "Unknown Error"}`);
+      },
+      onSuccess: (hash) => {
+        alert(`Transaction Sent! Hash: ${hash}`);
+      }
+    }
+  });
+
   const handleSend = (type: 'ETH' | 'TOKEN') => {
     try {
-      // 1. Clean the input: Remove brackets [ ] and split by comma
-      const cleanAddrStr = recipients.replace(/[\[\]]/g, '');
-      const cleanAmtStr = amounts.replace(/[\[\]]/g, '');
+      // 1. Basic Validation
+      if (!isConnected) {
+        alert("Please connect your wallet first.");
+        return;
+      }
 
-      // 2. Convert to Arrays and remove empty spaces
+      if (chain?.id !== 8453) { // Base Mainnet ID
+        alert("Please switch your wallet network to Base.");
+        return;
+      }
+
+      // 2. Clean the input: Remove brackets [ ] and extra quotes
+      const cleanAddrStr = recipients.replace(/[\[\]"]/g, '');
+      const cleanAmtStr = amounts.replace(/[\[\]"]/g, '');
+
+      // 3. Convert to Arrays and remove empty spaces
       const addrs = cleanAddrStr.split(',').map(a => a.trim()).filter(a => a !== '') as `0x${string}`[];
       const amts = cleanAmtStr.split(',').map(a => a.trim()).filter(a => a !== '');
 
@@ -36,9 +59,12 @@ export default function App() {
         return;
       }
 
+      // 4. Execute Contract Call
       if (type === 'ETH') {
         const weiValues = amts.map(a => parseEther(a));
         const total = weiValues.reduce((acc, v) => acc + v, 0n);
+        
+        console.log("Sending ETH Batch...", { addrs, weiValues, total });
         
         writeContract({ 
           address: CONTRACT_ADDRESS, 
@@ -48,12 +74,14 @@ export default function App() {
           value: total 
         });
       } else {
-        if (!tokenAddr) {
-            alert("Please enter the Token Address.");
+        if (!tokenAddr || !tokenAddr.startsWith('0x')) {
+            alert("Please enter a valid Token Contract Address.");
             return;
         }
-        const units = amts.map(a => parseUnits(a, 18));
+        const units = amts.map(a => parseUnits(a, 18)); // Assumes 18 decimals
         
+        console.log("Sending Token Batch...", { tokenAddr, addrs, units });
+
         writeContract({ 
           address: CONTRACT_ADDRESS, 
           abi: ABI, 
@@ -61,46 +89,62 @@ export default function App() {
           args: [tokenAddr as `0x${string}`, addrs, units] 
         });
       }
-    } catch (error) {
-      console.error(error);
-      alert("Input Error: Ensure amounts are valid numbers and addresses start with 0x.");
+    } catch (error: any) {
+      console.error("Format Error:", error);
+      alert("Input Format Error: Ensure you are using numbers for amounts and valid 0x addresses.");
     }
   };
 
   return (
     <div className="container">
-      <ConnectButton />
+      <div style={{ marginBottom: '20px' }}>
+        <ConnectButton />
+      </div>
+
       {isConnected && (
         <div className="form">
+          <label>Token Address (Only for Token batch)</label>
           <input 
-            placeholder="Token Address (for tokens only)" 
+            placeholder="0x..." 
             value={tokenAddr}
             onChange={e => setTokenAddr(e.target.value)} 
           />
+
+          <label>Recipients (Comma separated)</label>
           <textarea 
-            placeholder="Recipients (e.g. 0x123..., 0x456...)" 
+            placeholder="0x123..., 0x456..." 
             value={recipients}
             onChange={e => setRecipients(e.target.value)} 
             rows={5}
           />
+
+          <label>Amounts (Comma separated)</label>
           <textarea 
-            placeholder="Amounts (e.g. 0.1, 0.5)" 
+            placeholder="0.1, 0.5" 
             value={amounts}
             onChange={e => setAmounts(e.target.value)} 
             rows={5}
           />
           
-          <button onClick={() => handleSend('ETH')} disabled={isPending}>
-            {isPending ? 'Confirming...' : 'Send ETH'}
+          <button 
+            onClick={() => handleSend('ETH')} 
+            disabled={isPending}
+            style={{ backgroundColor: '#0052ff', marginBottom: '10px' }}
+          >
+            {isPending ? 'Confirm in Wallet...' : 'Multisend ETH'}
           </button>
           
           <button 
             onClick={() => handleSend('TOKEN')} 
             disabled={isPending}
-            style={{ marginTop: '10px', backgroundColor: '#0052ff' }}
+            style={{ backgroundColor: '#4CAF50' }}
           >
-            {isPending ? 'Confirming...' : 'Send Tokens'}
+            {isPending ? 'Confirm in Wallet...' : 'Multisend Tokens'}
           </button>
+          
+          <p style={{ fontSize: '12px', color: '#666', marginTop: '10px' }}>
+            Note: For tokens, you must "Approve" the contract on Basescan first.
+          </p>
         </div>
       )}
     </div>
