@@ -23,8 +23,13 @@ export default function App() {
       const cleanAmtStr = amounts.replace(/[\[\]]/g, '');
 
       // 2. Convert to Arrays and remove empty spaces
-      const addrs = cleanAddrStr.split(',').map(a => a.trim()).filter(a => a !== '') as `0x${string Royal}`;
+      const addrs = cleanAddrStr.split(',').map(a => a.trim()).filter(a => a !== '') as `0x${string}`[];
       const amts = cleanAmtStr.split(',').map(a => a.trim()).filter(a => a !== '');
+
+      if (addrs.length === 0 || amts.length === 0) {
+        alert("Please enter recipients and amounts.");
+        return;
+      }
 
       if (addrs.length !== amts.length) {
         alert(`Mismatch: You have ${addrs.length} addresses but ${amts.length} amounts.`);
@@ -43,6 +48,10 @@ export default function App() {
           value: total 
         });
       } else {
+        if (!tokenAddr) {
+            alert("Please enter the Token Address.");
+            return;
+        }
         const units = amts.map(a => parseUnits(a, 18));
         
         writeContract({ 
@@ -54,7 +63,7 @@ export default function App() {
       }
     } catch (error) {
       console.error(error);
-      alert("Input Error: Make sure amounts are numbers and addresses are valid.");
+      alert("Input Error: Ensure amounts are valid numbers and addresses start with 0x.");
     }
   };
 
@@ -72,15 +81,17 @@ export default function App() {
             placeholder="Recipients (e.g. 0x123..., 0x456...)" 
             value={recipients}
             onChange={e => setRecipients(e.target.value)} 
+            rows={5}
           />
           <textarea 
             placeholder="Amounts (e.g. 0.1, 0.5)" 
             value={amounts}
             onChange={e => setAmounts(e.target.value)} 
+            rows={5}
           />
           
           <button onClick={() => handleSend('ETH')} disabled={isPending}>
-            {isPending ? 'Confirm in Wallet...' : 'Send ETH'}
+            {isPending ? 'Confirming...' : 'Send ETH'}
           </button>
           
           <button 
@@ -88,7 +99,7 @@ export default function App() {
             disabled={isPending}
             style={{ marginTop: '10px', backgroundColor: '#0052ff' }}
           >
-            {isPending ? 'Confirm in Wallet...' : 'Send Tokens'}
+            {isPending ? 'Confirming...' : 'Send Tokens'}
           </button>
         </div>
       )}
