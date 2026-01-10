@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useWriteContract, useAccount, useConfig } from 'wagmi';
 import { waitForTransactionReceipt } from '@wagmi/core';
-import { parseEther, parseUnits, parseAbi, formatEther } from 'viem';
+import { parseEther, parseUnits, parseAbi } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { Send, History, CheckCircle2, XCircle, ArrowRight, Loader2, Coins } from 'lucide-react';
+import { LayoutDashboard, Send, History, Coins, Loader2, CheckCircle2, ShieldCheck, ArrowRight } from 'lucide-react';
 
 const CONTRACT_ADDRESS = '0x883f9868C5D44B16949ffF77fe56c4d9A9C2cfbD';
 const ABI = parseAbi([
@@ -12,43 +12,28 @@ const ABI = parseAbi([
   "function approve(address spender, uint256 amount) external returns (bool)"
 ]);
 
-interface TxHistory {
-  hash: string;
-  type: 'ETH' | 'TOKEN';
-  amount: string;
-  recipients: number;
-  status: 'Pending' | 'Success' | 'Failed';
-  timestamp: number;
-}
-
 export default function App() {
   const { isConnected, chain, address } = useAccount();
   const config = useConfig();
   const [activeTab, setActiveTab] = useState<'send' | 'history'>('send');
-  const [history, setHistory] = useState<TxHistory[]>([]);
-  
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+
   // Form States
   const [recipients, setRecipients] = useState('');
   const [amounts, setAmounts] = useState('');
   const [tokenAddr, setTokenAddr] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
 
   const { writeContractAsync } = useWriteContract();
 
-  // Load history from local storage on mount
+  // Load history from local storage
   useEffect(() => {
     const saved = localStorage.getItem(`tx_history_${address}`);
     if (saved) setHistory(JSON.parse(saved));
   }, [address]);
 
-  const addHistory = (tx: TxHistory) => {
-    const newHistory = [tx, ...history].slice(0, 10);
-    setHistory(newHistory);
-    localStorage.setItem(`tx_history_${address}`, JSON.stringify(newHistory));
-  };
-
   const handleSend = async (type: 'ETH' | 'TOKEN') => {
-    if (!isConnected || chain?.id !== 8453) return alert("Connect to Base Mainnet");
+    if (!isConnected || chain?.id !== 8453) return alert("Please connect to Base Network");
     
     try {
       setIsProcessing(true);
@@ -73,143 +58,155 @@ export default function App() {
         });
       }
 
-      addHistory({
-        hash: txHash, type, amount: amts.join(', '), recipients: addrs.length,
-        status: 'Success', timestamp: Date.now()
-      });
-      alert("Transaction Successful!");
-    } catch (e) {
+      // Record successful transaction
+      const newTx = { hash: txHash, type, time: Date.now(), count: addrs.length };
+      const updatedHistory = [newTx, ...history].slice(0, 10);
+      setHistory(updatedHistory);
+      localStorage.setItem(`tx_history_${address}`, JSON.stringify(updatedHistory));
+
+    } catch (e: any) {
       console.error(e);
+      alert(e.shortMessage || "Transaction Failed");
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] font-sans p-4 md:p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header Section */}
-        <header className="flex flex-col md:flex-row justify-between items-center mb-10 gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-          <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-              Base MultiSender Pro
-            </h1>
-            <p className="text-slate-500 text-sm">Enterprise-grade batch transfers</p>
+    <div className="min-h-screen bg-slate-50 flex font-sans">
+      {/* Sidebar - Professional Navigation */}
+      <aside className="w-64 bg-white border-r border-slate-200 p-6 hidden md:flex flex-col">
+        <div className="flex items-center gap-3 mb-10">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+            <Coins size={20} />
           </div>
-          <ConnectButton />
-        </header>
-
-        {/* Professional Navigation Tabs */}
-        <div className="flex p-1 bg-slate-200/50 rounded-xl mb-6 w-full max-w-[400px]">
+          <span className="font-bold text-xl tracking-tight">BaseSend</span>
+        </div>
+        
+        <nav className="space-y-1">
           <button 
             onClick={() => setActiveTab('send')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'send' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:bg-white/50'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'send' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
           >
-            <Send size={16} /> Send Assets
+            <Send size={18} /> Batch Transfer
           </button>
           <button 
             onClick={() => setActiveTab('history')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'history' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:bg-white/50'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'history' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
           >
-            <History size={16} /> History
+            <History size={18} /> Transaction History
           </button>
-        </div>
+        </nav>
+      </aside>
+
+      {/* Main Dashboard Area */}
+      <main className="flex-1 p-8">
+        <header className="flex justify-between items-center mb-8">
+          <h2 className="text-2xl font-bold text-slate-800">
+            {activeTab === 'send' ? 'New Transfer' : 'Your History'}
+          </h2>
+          <ConnectButton />
+        </header>
 
         {activeTab === 'send' ? (
-          <div className="grid gap-6">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Token Contract Address</label>
-                  <div className="relative">
+          <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Form Section */}
+            <section className="lg:col-span-2 space-y-6">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <div className="space-y-5">
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Token Contract (Optional)</label>
                     <input 
-                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all outline-none"
-                      placeholder="0x... (Optional: Only for Tokens)" 
+                      className="w-full px-4 py-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                      placeholder="0x... Leave blank for ETH" 
                       value={tokenAddr} onChange={e => setTokenAddr(e.target.value)} 
                     />
-                    <Coins className="absolute left-3 top-3.5 text-slate-400" size={18} />
                   </div>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">Recipients (CSV)</label>
-                    <textarea 
-                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 focus:ring-2 focus:ring-blue-500 transition-all outline-none text-sm"
-                      placeholder="0x123..., 0x456..." 
-                      value={recipients} onChange={e => setRecipients(e.target.value)} 
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Recipients</label>
+                      <textarea 
+                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none h-48 text-sm"
+                        placeholder="0x123..., 0x456..." 
+                        value={recipients} onChange={e => setRecipients(e.target.value)} 
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Amounts</label>
+                      <textarea 
+                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none h-48 text-sm"
+                        placeholder="0.1, 0.05" 
+                        value={amounts} onChange={e => setAmounts(e.target.value)} 
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">Amounts (CSV)</label>
-                    <textarea 
-                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 focus:ring-2 focus:ring-blue-500 transition-all outline-none text-sm"
-                      placeholder="0.1, 0.05" 
-                      value={amounts} onChange={e => setAmounts(e.target.value)} 
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-col md:flex-row gap-4 pt-4">
-                  <button 
-                    disabled={isProcessing}
-                    onClick={() => handleSend('ETH')}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 shadow-lg shadow-blue-200"
-                  >
-                    {isProcessing ? <Loader2 className="animate-spin" /> : <Send size={20} />} Batch Send ETH
-                  </button>
-                  <button 
-                    disabled={isProcessing}
-                    onClick={() => handleSend('TOKEN')}
-                    className="flex-1 bg-white border-2 border-slate-200 hover:border-blue-600 text-slate-700 hover:text-blue-600 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                  >
-                    {isProcessing ? <Loader2 className="animate-spin" /> : <Coins size={20} />} Batch Send Tokens
-                  </button>
                 </div>
               </div>
-            </div>
+
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => handleSend('ETH')}
+                  disabled={isProcessing}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {isProcessing ? <Loader2 className="animate-spin" /> : <Send size={18} />} Send Native ETH
+                </button>
+                <button 
+                  onClick={() => handleSend('TOKEN')}
+                  disabled={isProcessing}
+                  className="flex-1 bg-white border border-slate-200 hover:border-blue-600 text-slate-700 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {isProcessing ? <Loader2 className="animate-spin" /> : <Coins size={18} />} Send ERC-20 Tokens
+                </button>
+              </div>
+            </section>
+
+            {/* Sidebar Stats - 2026 Progressive Disclosure */}
+            <aside className="space-y-6">
+              <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-6 rounded-3xl text-white shadow-lg shadow-blue-200">
+                <h3 className="flex items-center gap-2 font-bold mb-4 opacity-90"><ShieldCheck size={18} /> Network Status</h3>
+                <div className="space-y-3 text-sm opacity-80">
+                  <div className="flex justify-between"><span>Chain</span><span className="font-mono">Base Mainnet</span></div>
+                  <div className="flex justify-between"><span>Status</span><span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" /> Operational</span></div>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 className="font-bold text-slate-800 mb-4">Transfer Guide</h3>
+                <ul className="space-y-4 text-xs text-slate-500 leading-relaxed">
+                  <li className="flex gap-3"><ArrowRight size={14} className="text-blue-500 shrink-0" /> Comma-separate all addresses and amounts.</li>
+                  <li className="flex gap-3"><ArrowRight size={14} className="text-blue-500 shrink-0" /> Ensure you have enough ETH for gas fees.</li>
+                  <li className="flex gap-3"><ArrowRight size={14} className="text-blue-500 shrink-0" /> Token transfers require an Approval step first.</li>
+                </ul>
+              </div>
+            </aside>
           </div>
         ) : (
-          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+          /* History Table Section */
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
             <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Transaction</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Recipients</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Status</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Time</th>
+              <thead>
+                <tr className="bg-slate-50/50 text-slate-400 text-xs font-bold uppercase tracking-widest border-b border-slate-100">
+                  <th className="px-8 py-5">Transaction Hash</th>
+                  <th className="px-8 py-5">Type</th>
+                  <th className="px-8 py-5">Recipients</th>
+                  <th className="px-8 py-5">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-100">
                 {history.map((tx) => (
-                  <tr key={tx.hash} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${tx.type === 'ETH' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'}`}>
-                          {tx.type === 'ETH' ? <Send size={14} /> : <Coins size={14} />}
-                        </div>
-                        <span className="text-sm font-medium text-slate-700">Batch {tx.type}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{tx.recipients} addresses</td>
-                    <td className="px-6 py-4">
-                      <span className="flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full w-fit">
-                        <CheckCircle2 size={12} /> Confirmed
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-400">
-                      {new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </td>
+                  <tr key={tx.hash} className="hover:bg-slate-50/30 transition-colors">
+                    <td className="px-8 py-5 font-mono text-xs text-blue-600 truncate max-w-[200px]">{tx.hash}</td>
+                    <td className="px-8 py-5 text-sm font-medium text-slate-600">{tx.type}</td>
+                    <td className="px-8 py-5 text-sm text-slate-500">{tx.count} addresses</td>
+                    <td className="px-8 py-5"><span className="flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-full w-fit"><CheckCircle2 size={12} /> Confirmed</span></td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {history.length === 0 && (
-              <div className="p-20 text-center text-slate-400 italic">No recent transactions found.</div>
-            )}
+            {history.length === 0 && <div className="p-20 text-center text-slate-400 italic">No recent transactions.</div>}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }
