@@ -1,13 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useWriteContract, useAccount, useConfig, useBalance } from 'wagmi';
+import { useState, useEffect } from 'react';
+import { useWriteContract, useAccount, useConfig } from 'wagmi';
 import { waitForTransactionReceipt } from '@wagmi/core';
-import { parseEther, parseUnits, parseAbi, formatUnits } from 'viem';
+import { parseEther, parseUnits, parseAbi } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { Search, Coins, Send, History, Loader2, CheckCircle2, ShieldCheck, ArrowRight, ExternalLink } from 'lucide-react';
+import { LayoutDashboard, Send, History, Coins, Loader2, CheckCircle2, ShieldCheck, ArrowRight } from 'lucide-react';
 
 const CONTRACT_ADDRESS = '0x883f9868C5D44B16949ffF77fe56c4d9A9C2cfbD';
-const MORALIS_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6Ijc0Yjk4ZGVlLTc0NDYtNDhjYy1iMThjLTIwYTA2YTI5MTYxYSIsIm9yZ0lkIjoiNDg5NjA0IiwidXNlcklkIjoiNTAzNzM5IiwidHlwZUlkIjoiODFhNDljNmYtOTZhNS00YmFlLWIzYTktNTg3MmM4ZWRlNjEyIiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjgwNzY2NzUsImV4cCI6NDkyMzgzNjY3NX0.vy5GcuOi1sswT1sv514IEN90gnc73-0nOErYvpTh124"; // Get yours at moralis.io
-
 const ABI = parseAbi([
   "function multisendETH(address[] recipients, uint256[] values) external payable",
   "function multisendToken(address token, address[] recipients, uint256[] values) external",
@@ -21,196 +19,191 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
 
-  // Token Search & Balance States
-  const [searchTerm, setSearchTerm] = useState('');
-  const [userTokens, setUserTokens] = useState<any[]>([]);
-  const [isLoadingTokens, setIsLoadingTokens] = useState(false);
-
   // Form States
   const [recipients, setRecipients] = useState('');
   const [amounts, setAmounts] = useState('');
-  const [selectedToken, setSelectedToken] = useState<any>(null); // Current token for multisend
+  const [tokenAddr, setTokenAddr] = useState('');
 
-  // Automatically load native ETH balance
-  const { data: ethBalance } = useBalance({ address });
   const { writeContractAsync } = useWriteContract();
 
-  // Load user's ERC-20 token list automatically
+  // Load history from local storage
   useEffect(() => {
-    if (isConnected && address) {
-      const fetchTokens = async () => {
-        setIsLoadingTokens(true);
-        try {
-          const response = await fetch(`deep-index.moralis.io{address}/erc20?chain=base`, {
-            headers: { 'X-API-Key': MORALIS_API_KEY }
-          });
-          const data = await response.json();
-          setUserTokens(data || []);
-        } catch (e) {
-          console.error("Failed to load tokens", e);
-        } finally {
-          setIsLoadingTokens(false);
-        }
-      };
-      fetchTokens();
-    }
-  }, [isConnected, address]);
+    const saved = localStorage.getItem(`tx_history_${address}`);
+    if (saved) setHistory(JSON.parse(saved));
+  }, [address]);
 
-  // Search Logic: Filter tokens by Name, Symbol, or Address
-  const filteredTokens = useMemo(() => {
-    return userTokens.filter(t => 
-      t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      t.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.token_address.toLowerCase() === searchTerm.toLowerCase()
-    );
-  }, [searchTerm, userTokens]);
-
-  const handleSend = async (isETH: boolean) => {
-    if (!isConnected || chain?.id !== 8453) return alert("Connect to Base Mainnet");
+  const handleSend = async (type: 'ETH' | 'TOKEN') => {
+    if (!isConnected || chain?.id !== 8453) return alert("Please connect to Base Network");
     
     try {
       setIsProcessing(true);
-      const addrs = recipients.split(',').map(a => a.trim() as `0x${string}`).filter(a => a);
-      const amts = amounts.split(',').map(a => a.trim()).filter(a => a);
-      const units = amts.map(a => isETH ? parseEther(a) : parseUnits(a, selectedToken?.decimals || 18));
+      const addrs = recipients.replace(/[\[\]"]/g, '').split(',').map(a => a.trim() as `0x${string}`).filter(a => a);
+      const amts = amounts.replace(/[\[\]"]/g, '').split(',').map(a => a.trim()).filter(a => a);
+      const units = amts.map(a => type === 'ETH' ? parseEther(a) : parseUnits(a, 18));
       const total = units.reduce((acc, v) => acc + v, 0n);
 
       let txHash;
-      if (isETH) {
+      if (type === 'ETH') {
         txHash = await writeContractAsync({ 
           address: CONTRACT_ADDRESS, abi: ABI, functionName: 'multisendETH', 
           args: [addrs, units], value: total 
         });
       } else {
-        if (!selectedToken) return alert("Select a token first");
         const approveHash = await writeContractAsync({
-          address: selectedToken.token_address, abi: ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, total]
+          address: tokenAddr as `0x${string}`, abi: ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, total]
         });
         await waitForTransactionReceipt(config, { hash: approveHash });
         txHash = await writeContractAsync({ 
-          address: CONTRACT_ADDRESS, abi: ABI, functionName: 'multisendToken', args: [selectedToken.token_address, addrs, units] 
+          address: CONTRACT_ADDRESS, abi: ABI, functionName: 'multisendToken', args: [tokenAddr as `0x${string}`, addrs, units] 
         });
       }
-      alert("Transfer Complete!");
+
+      // Record successful transaction
+      const newTx = { hash: txHash, type, time: Date.now(), count: addrs.length };
+      const updatedHistory = [newTx, ...history].slice(0, 10);
+      setHistory(updatedHistory);
+      localStorage.setItem(`tx_history_${address}`, JSON.stringify(updatedHistory));
+
     } catch (e: any) {
-      alert(e.shortMessage || "Transaction Error");
+      console.error(e);
+      alert(e.shortMessage || "Transaction Failed");
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#FDFDFD] flex font-sans text-slate-900">
-      {/* Sidebar Nav */}
-      <aside className="w-72 bg-white border-r border-slate-100 p-8 hidden lg:flex flex-col">
-        <div className="flex items-center gap-3 mb-12">
-          <div className="p-2 bg-blue-600 rounded-xl text-white"><ShieldCheck size={24} /></div>
-          <h1 className="text-xl font-black uppercase tracking-tighter">BaseBatch</h1>
+    <div className="min-h-screen bg-slate-50 flex font-sans">
+      {/* Sidebar - Professional Navigation */}
+      <aside className="w-64 bg-white border-r border-slate-200 p-6 hidden md:flex flex-col">
+        <div className="flex items-center gap-3 mb-10">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+            <Coins size={20} />
+          </div>
+          <span className="font-bold text-xl tracking-tight">BaseSend</span>
         </div>
-        <nav className="space-y-2">
-          <button onClick={() => setActiveTab('send')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'send' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}>
-            <Send size={20} /> Dashboard
+        
+        <nav className="space-y-1">
+          <button 
+            onClick={() => setActiveTab('send')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'send' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <Send size={18} /> Batch Transfer
           </button>
-          <button onClick={() => setActiveTab('history')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === 'history' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}>
-            <History size={20} /> Activity
+          <button 
+            onClick={() => setActiveTab('history')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'history' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <History size={18} /> Transaction History
           </button>
         </nav>
       </aside>
 
-      <main className="flex-1 p-6 md:p-12 overflow-y-auto">
-        <header className="flex justify-between items-center mb-12">
-          <div>
-            <h2 className="text-3xl font-black">{activeTab === 'send' ? 'Transfer Assets' : 'Activity Log'}</h2>
-            <p className="text-slate-400 text-sm mt-1">Manage batch transfers on Base Mainnet</p>
-          </div>
+      {/* Main Dashboard Area */}
+      <main className="flex-1 p-8">
+        <header className="flex justify-between items-center mb-8">
+          <h2 className="text-2xl font-bold text-slate-800">
+            {activeTab === 'send' ? 'New Transfer' : 'Your History'}
+          </h2>
           <ConnectButton />
         </header>
 
-        {activeTab === 'send' && (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-10">
-            {/* Left Column: Form */}
-            <div className="xl:col-span-2 space-y-6">
-              <div className="bg-white rounded-[32px] p-8 shadow-sm border border-slate-100">
-                <div className="space-y-6">
-                  {/* Token Search Explorer */}
+        {activeTab === 'send' ? (
+          <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Form Section */}
+            <section className="lg:col-span-2 space-y-6">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <div className="space-y-5">
                   <div>
-                    <label className="text-xs font-black text-slate-300 uppercase tracking-[0.2em] mb-3 block">1. Select Asset</label>
-                    <div className="relative group">
-                      <Search className="absolute left-4 top-3.5 text-slate-300 group-focus-within:text-blue-500 transition-colors" size={20} />
-                      <input 
-                        className="w-full pl-12 pr-4 py-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium"
-                        placeholder="Search by name, symbol, or 0x address..." 
-                        value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Token Contract (Optional)</label>
+                    <input 
+                      className="w-full px-4 py-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                      placeholder="0x... Leave blank for ETH" 
+                      value={tokenAddr} onChange={e => setTokenAddr(e.target.value)} 
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Recipients</label>
+                      <textarea 
+                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none h-48 text-sm"
+                        placeholder="0x123..., 0x456..." 
+                        value={recipients} onChange={e => setRecipients(e.target.value)} 
                       />
-                      {searchTerm && (
-                        <div className="absolute top-full left-0 w-full bg-white mt-2 rounded-2xl shadow-xl border border-slate-100 z-50 max-h-60 overflow-y-auto p-2 space-y-1">
-                          {filteredTokens.map(token => (
-                            <div key={token.token_address} onClick={() => { setSelectedToken(token); setSearchTerm(''); }} className="flex justify-between items-center p-3 hover:bg-blue-50 rounded-xl cursor-pointer group">
-                              <div className="flex items-center gap-3">
-                                {token.logo ? <img src={token.logo} className="w-8 h-8 rounded-full" /> : <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-[10px]">{token.symbol}</div>}
-                                <div>
-                                  <p className="font-bold text-sm">{token.name}</p>
-                                  <p className="text-[10px] text-slate-400 font-mono">{token.token_address.slice(0,6)}...{token.token_address.slice(-4)}</p>
-                                </div>
-                              </div>
-                              <p className="text-sm font-black">{parseFloat(formatUnits(token.balance, token.decimals)).toFixed(4)}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Manual Input Area */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="text-xs font-black text-slate-300 uppercase tracking-[0.2em] mb-3 block">2. Recipients (CSV)</label>
-                      <textarea className="w-full p-5 bg-slate-50 rounded-2xl border-none outline-none h-48 text-sm font-mono focus:ring-2 focus:ring-blue-100" placeholder="0x..., 0x..." value={recipients} onChange={e => setRecipients(e.target.value)} />
                     </div>
                     <div>
-                      <label className="text-xs font-black text-slate-300 uppercase tracking-[0.2em] mb-3 block">3. Amounts (CSV)</label>
-                      <textarea className="w-full p-5 bg-slate-50 rounded-2xl border-none outline-none h-48 text-sm font-mono focus:ring-2 focus:ring-blue-100" placeholder="0.5, 1.2" value={amounts} onChange={e => setAmounts(e.target.value)} />
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Amounts</label>
+                      <textarea 
+                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none h-48 text-sm"
+                        placeholder="0.1, 0.05" 
+                        value={amounts} onChange={e => setAmounts(e.target.value)} 
+                      />
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Action Buttons */}
               <div className="flex gap-4">
-                <button onClick={() => handleSend(true)} disabled={isProcessing} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-[24px] shadow-lg shadow-blue-100 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
-                  {isProcessing ? <Loader2 className="animate-spin" /> : <Send size={20} />} SEND ETH
+                <button 
+                  onClick={() => handleSend('ETH')}
+                  disabled={isProcessing}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {isProcessing ? <Loader2 className="animate-spin" /> : <Send size={18} />} Send Native ETH
                 </button>
-                <button onClick={() => handleSend(false)} disabled={isProcessing || !selectedToken} className="flex-1 bg-white border-2 border-slate-100 hover:border-blue-600 text-slate-700 font-black py-5 rounded-[24px] transition-all flex items-center justify-center gap-3 disabled:opacity-30">
-                  {isProcessing ? <Loader2 className="animate-spin" /> : <Coins size={20} />} SEND {selectedToken?.symbol || 'TOKEN'}
+                <button 
+                  onClick={() => handleSend('TOKEN')}
+                  disabled={isProcessing}
+                  className="flex-1 bg-white border border-slate-200 hover:border-blue-600 text-slate-700 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {isProcessing ? <Loader2 className="animate-spin" /> : <Coins size={18} />} Send ERC-20 Tokens
                 </button>
               </div>
-            </div>
+            </section>
 
-            {/* Right Column: Wallet Info */}
-            <div className="space-y-6">
-              <div className="bg-slate-900 rounded-[32px] p-8 text-white shadow-2xl">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-6">Active Portfolio</h3>
-                <div className="space-y-6">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <p className="text-3xl font-black tracking-tighter">{ethBalance?.formatted.slice(0,6)} <span className="text-blue-500">ETH</span></p>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Available for gas</p>
-                    </div>
-                    <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center"><ExternalLink size={16} /></div>
-                  </div>
-                  <div className="h-[1px] bg-white/5 w-full" />
-                  {selectedToken && (
-                    <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5 animate-in fade-in slide-in-from-bottom-4">
-                      <div>
-                        <p className="text-xs font-bold opacity-50">Selected Asset</p>
-                        <p className="font-black text-lg">{selectedToken.symbol}</p>
-                      </div>
-                      <p className="font-mono text-blue-400">{(selectedToken.balance / 10**selectedToken.decimals).toFixed(2)}</p>
-                    </div>
-                  )}
+            {/* Sidebar Stats - 2026 Progressive Disclosure */}
+            <aside className="space-y-6">
+              <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-6 rounded-3xl text-white shadow-lg shadow-blue-200">
+                <h3 className="flex items-center gap-2 font-bold mb-4 opacity-90"><ShieldCheck size={18} /> Network Status</h3>
+                <div className="space-y-3 text-sm opacity-80">
+                  <div className="flex justify-between"><span>Chain</span><span className="font-mono">Base Mainnet</span></div>
+                  <div className="flex justify-between"><span>Status</span><span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" /> Operational</span></div>
                 </div>
               </div>
-            </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 className="font-bold text-slate-800 mb-4">Transfer Guide</h3>
+                <ul className="space-y-4 text-xs text-slate-500 leading-relaxed">
+                  <li className="flex gap-3"><ArrowRight size={14} className="text-blue-500 shrink-0" /> Comma-separate all addresses and amounts.</li>
+                  <li className="flex gap-3"><ArrowRight size={14} className="text-blue-500 shrink-0" /> Ensure you have enough ETH for gas fees.</li>
+                  <li className="flex gap-3"><ArrowRight size={14} className="text-blue-500 shrink-0" /> Token transfers require an Approval step first.</li>
+                </ul>
+              </div>
+            </aside>
+          </div>
+        ) : (
+          /* History Table Section */
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/50 text-slate-400 text-xs font-bold uppercase tracking-widest border-b border-slate-100">
+                  <th className="px-8 py-5">Transaction Hash</th>
+                  <th className="px-8 py-5">Type</th>
+                  <th className="px-8 py-5">Recipients</th>
+                  <th className="px-8 py-5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {history.map((tx) => (
+                  <tr key={tx.hash} className="hover:bg-slate-50/30 transition-colors">
+                    <td className="px-8 py-5 font-mono text-xs text-blue-600 truncate max-w-[200px]">{tx.hash}</td>
+                    <td className="px-8 py-5 text-sm font-medium text-slate-600">{tx.type}</td>
+                    <td className="px-8 py-5 text-sm text-slate-500">{tx.count} addresses</td>
+                    <td className="px-8 py-5"><span className="flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-full w-fit"><CheckCircle2 size={12} /> Confirmed</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {history.length === 0 && <div className="p-20 text-center text-slate-400 italic">No recent transactions.</div>}
           </div>
         )}
       </main>
